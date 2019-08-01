@@ -21,6 +21,8 @@
 #ifndef _QUAGGA_BGP_VTY_H
 #define _QUAGGA_BGP_VTY_H
 
+#include "bgpd/bgpd.h"
+
 struct bgp;
 
 #define BGP_INSTANCE_HELP_STR "BGP view\nBGP VRF\nView/VRF name\n"
@@ -45,6 +47,8 @@ struct bgp;
 	"Address Family modifier\n"
 
 extern void bgp_vty_init(void);
+extern int bgp_get_vty(struct bgp **bgp, as_t *as, const char *name,
+		       enum bgp_instance_type inst_type);
 extern const char *afi_safi_print(afi_t afi, safi_t safi);
 extern const char *afi_safi_json(afi_t afi, safi_t safi);
 extern void bgp_config_write_update_delay(struct vty *vty, struct bgp *bgp);
