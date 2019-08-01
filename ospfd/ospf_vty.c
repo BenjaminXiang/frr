@@ -53,6 +53,11 @@
 #include "ospfd/ospf_dump.h"
 #include "ospfd/ospf_bfd.h"
 
+FRR_CFG_DEFAULT_LONG(OSPF_LOG_ADJACENCY_CHANGES,
+	{ .val_long = 1, .match_profile = "datacenter", },
+	{ .val_long = 0 },
+)
+
 static const char *ospf_network_type_str[] = {
 	"Null",	"POINTOPOINT", "BROADCAST", "NBMA", "POINTOMULTIPOINT",
 	"VIRTUALLINK", "LOOPBACK"};
@@ -138,6 +143,7 @@ static struct ospf *ospf_cmd_lookup_ospf(struct vty *vty,
 	struct ospf *ospf = NULL;
 	int idx_vrf = 0, idx_inst = 0;
 	const char *vrf_name = NULL;
+	bool created = false;
 
 	*instance = 0;
 	if (argv_find(argv, argc, "(1-65535)", &idx_inst))
@@ -149,16 +155,38 @@ static struct ospf *ospf_cmd_lookup_ospf(struct vty *vty,
 			vrf_name = NULL;
 		if (enable) {
 			/* Allocate VRF aware instance */
-			ospf = ospf_get(*instance, vrf_name);
+			ospf = ospf_get(*instance, vrf_name, &created);
 		} else {
 			ospf = ospf_lookup_by_inst_name(*instance, vrf_name);
 		}
 	} else {
 		if (enable) {
-			ospf = ospf_get(*instance, NULL);
+			ospf = ospf_get(*instance, NULL, &created);
 		} else {
 			ospf = ospf_lookup_instance(*instance);
 		}
+	}
+
+	if (created) {
+		if (DFLT_OSPF_LOG_ADJACENCY_CHANGES)
+			SET_FLAG(ospf->config, OSPF_LOG_ADJACENCY_CHANGES);
+	}
+
+	return ospf;
+}
+
+/* for use at startup to pre-setup an instance, so interface commands can be
+ * read.
+ * XXX: doing this from main() is a dirty hack that needs to go away.
+ */
+struct ospf *ospf_prepare_instance(unsigned short instance)
+{
+	bool created = false;
+	struct ospf *ospf = ospf_get_instance(instance, &created);
+
+	if (created) {
+		if (DFLT_OSPF_LOG_ADJACENCY_CHANGES)
+			SET_FLAG(ospf->config, OSPF_LOG_ADJACENCY_CHANGES);
 	}
 
 	return ospf;
@@ -10351,9 +10379,9 @@ static int ospf_config_write_one(struct vty *vty, struct ospf *ospf)
 	if (CHECK_FLAG(ospf->config, OSPF_LOG_ADJACENCY_CHANGES)) {
 		if (CHECK_FLAG(ospf->config, OSPF_LOG_ADJACENCY_DETAIL))
 			vty_out(vty, " log-adjacency-changes detail\n");
-		else if (!DFLT_OSPF_LOG_ADJACENCY_CHANGES)
+		else if (!SAVE_OSPF_LOG_ADJACENCY_CHANGES)
 			vty_out(vty, " log-adjacency-changes\n");
-	} else if (DFLT_OSPF_LOG_ADJACENCY_CHANGES) {
+	} else if (SAVE_OSPF_LOG_ADJACENCY_CHANGES) {
 		vty_out(vty, " no log-adjacency-changes\n");
 	}
 

@@ -220,7 +220,7 @@ int main(int argc, char **argv)
 	   commands can be duly processed if they are received before 'router
 	   ospf',
 	   when quagga(ospfd) is restarted */
-	if (!ospf_get_instance(instance)) {
+	if (!ospf_prepare_instance(instance)) {
 		flog_err(EC_OSPF_INIT_FAIL, "OSPF instance init failed: %s",
 			 strerror(errno));
 		exit(1);
