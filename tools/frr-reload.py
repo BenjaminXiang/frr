@@ -123,8 +123,7 @@ class Config(object):
         log.info('Loading Config object from file %s', filename)
 
         try:
-            file_output = subprocess.check_output(['/usr/bin/vtysh', '-m', '-f', filename],
-                                                  stderr=subprocess.STDOUT)
+            file_output = subprocess.check_output(['/usr/bin/vtysh', '-m', '-f', filename])
         except subprocess.CalledProcessError as e:
             ve = VtyshMarkException(e)
             ve.output = e.output
@@ -144,7 +143,7 @@ class Config(object):
 
         self.load_contexts()
 
-    def load_from_show_running(self):
+    def load_from_show_running(self, n_option):
         """
         Read running configuration and slurp it into internal memory
         The internal representation has been marked appropriately by passing it
@@ -153,9 +152,16 @@ class Config(object):
         log.info('Loading Config object from vtysh show running')
 
         try:
-            config_text = subprocess.check_output(
-                "/usr/bin/vtysh -c 'show run' | /usr/bin/tail -n +4 | /usr/bin/vtysh -m -f -",
-                shell=True, stderr=subprocess.STDOUT)
+            show_run = subprocess.Popen(['/usr/bin/vtysh'] + n_option + ['-c', 'show run no-header'],
+                    stdout = subprocess.PIPE)
+            config_text = subprocess.check_output(['/usr/bin/vtysh', '-m', '-f', '-'],
+                    stdin = show_run.stdout)
+            show_run.wait()
+
+            # the first vtysh call doesn't get an automatic CalledProcessError
+            if show_run.returncode != 0:
+                raise VtyshMarkException('show running-config failed (status %d)' % show_run.returncode)
+
         except subprocess.CalledProcessError as e:
             ve = VtyshMarkException(e)
             ve.output = e.output
@@ -528,13 +534,14 @@ end
         self.save_contexts(ctx_keys, current_context_lines)
 
 
-def line_to_vtysh_conft(ctx_keys, line, delete):
+def line_to_vtysh_conft(ctx_keys, line, delete, n_option = []):
     """
     Return the vtysh command for the specified context line
     """
 
     cmd = []
     cmd.append('vtysh')
+    cmd.extend(n_option)
     cmd.append('-c')
     cmd.append('conf t')
 
@@ -1074,7 +1081,7 @@ def compare_context_objects(newconf, running):
 
 
 
-def vtysh_config_available():
+def vtysh_config_available(n_option = []):
     """
     Return False if no frr daemon is running or some other vtysh session is
     in 'configuration terminal' mode which will prevent us from making any
@@ -1082,8 +1089,8 @@ def vtysh_config_available():
     """
 
     try:
-        cmd = ['/usr/bin/vtysh', '-c', 'conf t']
-        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).strip()
+        cmd = ['/usr/bin/vtysh'] + n_option + ['-c', 'conf t']
+        output = subprocess.check_output(cmd).strip()
 
         if 'VTY configuration is locked by other VTY' in output.decode('utf-8'):
             print(output)
@@ -1108,6 +1115,7 @@ if __name__ == '__main__':
     group.add_argument('--test', action='store_true', help='Show the deltas', default=False)
     parser.add_argument('--debug', action='store_true', help='Enable debugs', default=False)
     parser.add_argument('--stdout', action='store_true', help='Log to STDOUT', default=False)
+    parser.add_argument('--pathspace', '-N', metavar='NAME', help='Reload specified path/namespace', default=None)
     parser.add_argument('filename', help='Location of new frr config file')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite frr.conf with running config output', default=False)
     args = parser.parse_args()
@@ -1136,6 +1144,12 @@ if __name__ == '__main__':
         raise Exception('Must specify --reload or --test')
     log = logging.getLogger(__name__)
 
+    n_option = []
+    pathinfix = ''
+    if args.pathspace:
+        n_option = ['-N', args.pathspace]
+        pathinfix = '%s/' % args.pathspace
+
     # Verify the new config file is valid
     if not os.path.isfile(args.filename):
         msg = "Filename %s does not exist" % args.filename
@@ -1150,7 +1164,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # Verify that 'service integrated-vtysh-config' is configured
-    vtysh_filename = '/etc/frr/vtysh.conf'
+    vtysh_filename = '/etc/frr/%svtysh.conf' % pathinfix
     service_integrated_vtysh_config = True
 
     if os.path.isfile(vtysh_filename):
@@ -1186,7 +1200,7 @@ if __name__ == '__main__':
         if args.input:
             running.load_from_file(args.input)
         else:
-            running.load_from_show_running()
+            running.load_from_show_running(n_option)
 
         (lines_to_add, lines_to_del) = compare_context_objects(newconf, running)
         lines_to_configure = []
@@ -1220,7 +1234,7 @@ if __name__ == '__main__':
     elif args.reload:
 
         # We will not be able to do anything, go ahead and exit(1)
-        if not vtysh_config_available():
+        if not vtysh_config_available(n_option):
             sys.exit(1)
 
         log.debug('New Frr Config\n%s', newconf.get_lines())
@@ -1264,7 +1278,7 @@ if __name__ == '__main__':
 
         for x in range(2):
             running = Config()
-            running.load_from_show_running()
+            running.load_from_show_running(n_option)
             log.debug('Running Frr Config (Pass #%d)\n%s', x, running.get_lines())
 
             (lines_to_add, lines_to_del) = compare_context_objects(newconf, running)
@@ -1296,7 +1310,7 @@ if __name__ == '__main__':
                     # 'no' commands are tricky, we can't just put them in a file and
                     # vtysh -f that file. See the next comment for an explanation
                     # of their quirks
-                    cmd = line_to_vtysh_conft(ctx_keys, line, True)
+                    cmd = line_to_vtysh_conft(ctx_keys, line, True, n_option)
                     original_cmd = cmd
 
                     # Some commands in frr are picky about taking a "no" of the entire line.
@@ -1315,7 +1329,7 @@ if __name__ == '__main__':
 
                     while True:
                         try:
-                            _ = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+                            _ = subprocess.check_output(cmd)
 
                         except subprocess.CalledProcessError:
 
@@ -1360,15 +1374,15 @@ if __name__ == '__main__':
                             fh.write(line + '\n')
 
                     try:
-                        subprocess.check_output(['/usr/bin/vtysh', '-f', filename], stderr=subprocess.STDOUT)
+                        subprocess.check_output(['/usr/bin/vtysh'] + n_option + ['-f', filename])
                     except subprocess.CalledProcessError as e:
                         log.warning("frr-reload.py failed due to\n%s" % e.output)
                         reload_ok = False
                     os.unlink(filename)
 
         # Make these changes persistent
-        if args.overwrite or args.filename != '/etc/frr/frr.conf':
-            subprocess.call(['/usr/bin/vtysh', '-c', 'write'])
+        if args.overwrite or args.filename != ('/etc/frr/%sfrr.conf' % pathinfix):
+            subprocess.call(['/usr/bin/vtysh'] + n_option + ['-c', 'write'])
 
     if not reload_ok:
         sys.exit(1)
