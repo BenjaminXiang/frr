@@ -35,6 +35,7 @@ EXTRA_DIST += \
 	tools/frr-reload \
 	tools/frr-reload.py \
 	tools/frr.service \
+	tools/frr@.service \
 	tools/multiple-bgpd.sh \
 	tools/rrcheck.pl \
 	tools/rrlookup.pl \
