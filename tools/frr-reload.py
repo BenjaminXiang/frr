@@ -123,8 +123,7 @@ class Config(object):
         log.info('Loading Config object from file %s', filename)
 
         try:
-            file_output = subprocess.check_output(['/usr/bin/vtysh', '-m', '-f', filename],
-                                                  stderr=subprocess.STDOUT)
+            file_output = subprocess.check_output(['/usr/bin/vtysh', '-m', '-f', filename])
         except subprocess.CalledProcessError as e:
             ve = VtyshMarkException(e)
             ve.output = e.output
@@ -155,7 +154,7 @@ class Config(object):
         try:
             config_text = subprocess.check_output(
                 "/usr/bin/vtysh -c 'show run' | /usr/bin/tail -n +4 | /usr/bin/vtysh -m -f -",
-                shell=True, stderr=subprocess.STDOUT)
+                shell=True)
         except subprocess.CalledProcessError as e:
             ve = VtyshMarkException(e)
             ve.output = e.output
@@ -1083,7 +1082,7 @@ def vtysh_config_available():
 
     try:
         cmd = ['/usr/bin/vtysh', '-c', 'conf t']
-        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).strip()
+        output = subprocess.check_output(cmd).strip()
 
         if 'VTY configuration is locked by other VTY' in output.decode('utf-8'):
             print(output)
@@ -1315,7 +1314,7 @@ if __name__ == '__main__':
 
                     while True:
                         try:
-                            _ = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+                            _ = subprocess.check_output(cmd)
 
                         except subprocess.CalledProcessError:
 
@@ -1360,7 +1359,7 @@ if __name__ == '__main__':
                             fh.write(line + '\n')
 
                     try:
-                        subprocess.check_output(['/usr/bin/vtysh', '-f', filename], stderr=subprocess.STDOUT)
+                        subprocess.check_output(['/usr/bin/vtysh', '-f', filename])
                     except subprocess.CalledProcessError as e:
                         log.warning("frr-reload.py failed due to\n%s" % e.output)
                         reload_ok = False
